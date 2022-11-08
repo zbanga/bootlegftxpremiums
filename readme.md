@@ -15,6 +15,6 @@ pip install -r requirements.txt
 streamlit run dashboard.py
 ```
 
-Please wait a couple of minutes as its slow af and downloads from the server all the funding rates (180 in total) so it will take a couple of minuts
+Please wait a couple of minutes as its slow af and downloads from the server all the funding rates (180 in total) so it will take a couple of minutes
 
 Also create a folder called data where the data of the downloads is used. 

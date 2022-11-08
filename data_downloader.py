@@ -51,9 +51,9 @@ def fetch_funding_rate(ftx, perp_cached, symbol):
         perp_cached = load_cached_data()
         start_time = int(
             perp_cached[perp_cached["future"] == symbol]
-            .sort_values("timestamp", ascending=True)["timestamp"]
-            .tail(1)
-            .reset_index(drop=True)[0]
+                .sort_values("timestamp", ascending=True)["timestamp"]
+                .tail(1)
+                .reset_index(drop=True)[0]
         )
         funding_rate = ftx.fetchFundingRateHistory(
             symbol,
@@ -91,33 +91,49 @@ def fetch_volume(ftx, symbol):
     return ticker_info
 
 
+def process_ticker_price_and_volume(volume):
+    ticker_price = float(volume.get("info", "").get("last", ""))
+    ticker_volume = float(volume.get("info", "").get("volumeUsd24h", ""))
+    return ticker_price, ticker_volume
+
+
+def process_funding_rate(rates):
+    funding_rate = [float(i.get("fundingRate")) for i in rates]
+    payment_frequency = 24  # TODO collapse this function.... this is doing the same shit.. rule of three
+    one_hour = funding_rate[-1]
+    avg_three_hours = sum(funding_rate[-3:]) / 3
+    avg_daily = sum(funding_rate[-payment_frequency:]) / payment_frequency
+    avg_three_days = sum(funding_rate[-3 * payment_frequency:]) / (
+            3 * payment_frequency
+    )
+    avg_seven_days = sum(funding_rate[-7 * payment_frequency:]) / (
+            7 * payment_frequency
+    )
+    avg_fourteen_days = sum(funding_rate[-14 * payment_frequency:]) / (
+            14 * payment_frequency
+    )
+    avg_thirty_days = sum(funding_rate[-30 * payment_frequency:]) / (
+            30 * payment_frequency
+    )
+    return one_hour, avg_three_hours, avg_daily, avg_three_days, avg_seven_days, avg_fourteen_days, avg_thirty_days
+
+def process_open_interest_and_funding_rate(interest, ticker_price):
+    #TODO split this... doesnt really get you want you want.
+    open_interest = float(interest.get("openInterestAmount", "")) * ticker_price
+    next_funding_rate = float(interest.get("info", "").get("nextFundingRate", ""))
+    return open_interest, next_funding_rate
+
 def fetch_all_funding_rates(ftx, perp_list, perp_cached):
     funding_rates = []
-    payment_frequency = 24
+
     for symbol in perp_list:
         rates = fetch_funding_rate(ftx, perp_cached, symbol)
         interest = fetch_open_interest(ftx, symbol)
         volume = fetch_volume(ftx, symbol)
-        ticker_price = float(volume.get("info", "").get("last", ""))
-        ticker_volume = float(volume.get("info", "").get("volumeUsd24h", ""))
-        funding_rate = [float(i.get("fundingRate")) for i in rates]
-        open_interest = float(interest.get("openInterestAmount", "")) * ticker_price
-        next_funding_rate = float(interest.get("info", "").get("nextFundingRate", ""))
-        one_hour = funding_rate[-1]
-        avg_three_hours = sum(funding_rate[-3:]) / 3
-        avg_daily = sum(funding_rate[-payment_frequency:]) / payment_frequency
-        avg_three_days = sum(funding_rate[-3 * payment_frequency :]) / (
-            3 * payment_frequency
-        )
-        avg_seven_days = sum(funding_rate[-7 * payment_frequency :]) / (
-            7 * payment_frequency
-        )
-        avg_fourteen_days = sum(funding_rate[-14 * payment_frequency :]) / (
-            14 * payment_frequency
-        )
-        avg_thirty_days = sum(funding_rate[-30 * payment_frequency :]) / (
-            30 * payment_frequency
-        )
+        ticker_price, ticker_volume = process_ticker_price_and_volume(volume)
+        one_hour, avg_three_hours, avg_daily, avg_three_days, avg_seven_days, avg_fourteen_days, avg_thirty_days = process_funding_rate(
+            rates)
+        open_interest, next_funding_rate = process_open_interest_and_funding_rate(interest, ticker_price)
         funding_rates.append(
             [
                 symbol,
@@ -137,21 +153,21 @@ def fetch_all_funding_rates(ftx, perp_list, perp_cached):
 
 
 def annualise_funding_rate(df):
-    df[["Next Funding", "1h", "3h", "1d", "3d", "7d", "14d", "30d",]] = (
-        df[
-            [
-                "Next Funding",
-                "1h",
-                "3h",
-                "1d",
-                "3d",
-                "7d",
-                "14d",
-                "30d",
+    df[["Next Funding", "1h", "3h", "1d", "3d", "7d", "14d", "30d", ]] = (
+            df[
+                [
+                    "Next Funding",
+                    "1h",
+                    "3h",
+                    "1d",
+                    "3d",
+                    "7d",
+                    "14d",
+                    "30d",
+                ]
             ]
-        ]
-        * 24
-        * 365
+            * 24
+            * 365
     )
     # Such a bad way of doing this.
 
