@@ -26,12 +26,21 @@ def get_ftx_perp_markets(ftx):
     return perp_list
 
 
+def get_last_funding_time_for_perp(perp_cached,symbol ):
+    start_time = int(
+        perp_cached[perp_cached["future"] == symbol]
+            .sort_values("timestamp", ascending=True)["timestamp"]
+            .tail(1)
+            .reset_index(drop=True)[0]
+    )
+    return start_time
+
 def fetch_funding_rate(ftx, perp_cached, symbol):
     if perp_cached.empty or (symbol not in perp_cached.future.values):
         limit = 150
         funding_rate = ftx.fetchFundingRateHistory(
             symbol,
-            since=int(round(datetime.datetime.utcnow().timestamp() * 1000)),
+            # since=int(round(datetime.datetime.utcnow().timestamp() * 1000)),
             limit=limit,
         )
         funding_df = pd.DataFrame(funding_rate)
@@ -49,12 +58,7 @@ def fetch_funding_rate(ftx, perp_cached, symbol):
         combined_df = funding_df
     else:
         perp_cached = load_cached_data()
-        start_time = int(
-            perp_cached[perp_cached["future"] == symbol]
-                .sort_values("timestamp", ascending=True)["timestamp"]
-                .tail(1)
-                .reset_index(drop=True)[0]
-        )
+        start_time = get_last_funding_time_for_perp(perp_cached, symbol)
         funding_rate = ftx.fetchFundingRateHistory(
             symbol,
             since=start_time,
@@ -69,6 +73,7 @@ def fetch_funding_rate(ftx, perp_cached, symbol):
         funding_df["timestamp"] = funding_df["timestamp"].astype(str).astype("int64")
         funding_df = funding_df[funding_df["timestamp"] < start_time]
         funding_df = funding_df[funding_df["future"] == symbol]
+        perp_cached = perp_cached[perp_cached["future"] == symbol]
         combined_df = pd.concat([perp_cached, funding_df])  # TODO write deduplication
         combined_df = combined_df.drop_duplicates()
         combined_df = combined_df.sort_values(["future", "timestamp"])
@@ -98,21 +103,22 @@ def process_ticker_price_and_volume(volume):
 
 
 def process_funding_rate(rates):
-    funding_rate = [float(i.get("fundingRate")) for i in rates]
+    # funding_rate = [float(i.get("fundingRate")) for i in rates]
+    funding_rate = rates.sort_values("timestamp")
     payment_frequency = 24  # TODO collapse this function.... this is doing the same shit.. rule of three
-    one_hour = funding_rate[-1]
-    avg_three_hours = sum(funding_rate[-3:]) / 3
-    avg_daily = sum(funding_rate[-payment_frequency:]) / payment_frequency
-    avg_three_days = sum(funding_rate[-3 * payment_frequency:]) / (
+    one_hour = sum(funding_rate.iloc[-1:]["fundingRate"])
+    avg_three_hours = sum(funding_rate.iloc[-3:]["fundingRate"]) / 3
+    avg_daily = sum(funding_rate.iloc[-payment_frequency:]["fundingRate"]) / payment_frequency
+    avg_three_days = sum(funding_rate.iloc[-payment_frequency*3:]["fundingRate"]) / (
             3 * payment_frequency
     )
-    avg_seven_days = sum(funding_rate[-7 * payment_frequency:]) / (
+    avg_seven_days = sum(funding_rate.iloc[-payment_frequency*7:]["fundingRate"]) / (
             7 * payment_frequency
     )
-    avg_fourteen_days = sum(funding_rate[-14 * payment_frequency:]) / (
+    avg_fourteen_days = sum(funding_rate.iloc[-payment_frequency*14:]["fundingRate"]) / (
             14 * payment_frequency
     )
-    avg_thirty_days = sum(funding_rate[-30 * payment_frequency:]) / (
+    avg_thirty_days = sum(funding_rate.iloc[-payment_frequency*30:]["fundingRate"]) / (
             30 * payment_frequency
     )
     return one_hour, avg_three_hours, avg_daily, avg_three_days, avg_seven_days, avg_fourteen_days, avg_thirty_days
@@ -125,7 +131,6 @@ def process_open_interest_and_funding_rate(interest, ticker_price):
 
 def fetch_all_funding_rates(ftx, perp_list, perp_cached):
     funding_rates = []
-
     for symbol in perp_list:
         rates = fetch_funding_rate(ftx, perp_cached, symbol)
         interest = fetch_open_interest(ftx, symbol)
@@ -169,7 +174,7 @@ def annualise_funding_rate(df):
             * 24
             * 365
     )
-    # Such a bad way of doing this.
+    # TODO Such a bad way of doing this. Perhaps implement a function.
 
     df = df.sort_values(by="1h", ascending=False).reset_index(drop=True)
     return df
